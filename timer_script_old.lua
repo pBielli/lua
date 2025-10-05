@@ -1,10 +1,13 @@
 -- timer.lua
--- Timer con barra di caricamento colorata e segnale redstone attivo per tutta la durata
+-- Timer a n secondi con barra di caricamento colorata su monitor (se presente)
+-- e impulso redstone sul lato "back".
 -- Uso: timer.lua <secondi>
+-- Se non passi l'argomento verrà chiesto a runtime.
 
 local args = {...}
 local seconds = tonumber(args[1])
 
+-- input se non fornito
 if not seconds then
   term.clear()
   term.setCursorPos(1,1)
@@ -17,7 +20,10 @@ if not seconds or seconds <= 0 then
   return
 end
 
--- Trova monitor (se collegato)
+-- Assicuriamoci che l'output redstone sia spento all'inizio
+pcall(function() redstone.setOutput("back", false) end)
+
+-- trova un monitor attaccato (se presente)
 local function findMonitor()
   local sides = {"top","bottom","left","right","front","back"}
   for _, side in ipairs(sides) do
@@ -30,32 +36,30 @@ end
 
 local mon, monSide = findMonitor()
 
--- Palette colori
+-- palette di colori (rainbow)
 local colorsList = {
   colors.red, colors.orange, colors.yellow, colors.lime, colors.green,
   colors.cyan, colors.lightBlue, colors.blue, colors.purple, colors.magenta
 }
 
--- Funzione tempo compatibile
+-- ora con precisione: usa os.epoch se disponibile, altrimenti os.clock
+local function hasEpoch()
+  return type(os.epoch) == "function"
+end
 local function now()
-  if os.epoch then
-    return os.epoch("local") / 1000
-  elseif os.clock then
-    return os.clock()
-  else
-    return 0
-  end
+  if hasEpoch() then return os.epoch("local")/1000 end
+  return os.clock()
 end
 
--- Disegna barra su monitor
+-- disegna la barra sul monitor (mon must be peripheral.wrap result)
 local function drawMonitor(mon, total, remaining, progress, shift)
   local w,h = mon.getSize()
   mon.setBackgroundColor(colors.black)
   mon.clear()
   mon.setTextColor(colors.white)
   mon.setCursorPos(1,1)
-  mon.write(string.format("Timer: %ds", math.ceil(remaining)))
-
+  local title = string.format("Timer: %ds", math.ceil(remaining))
+  mon.write(title)
   local perc = math.floor(progress * 100)
   local percStr = string.format("%3d%%", perc)
   mon.setCursorPos(math.max(1, w - #percStr + 1),1)
@@ -86,7 +90,7 @@ local function drawMonitor(mon, total, remaining, progress, shift)
   mon.setBackgroundColor(colors.black)
 end
 
--- Disegna barra su terminale
+-- fallback su terminale (semplice barra testuale)
 local function drawTerminal(total, remaining, progress, shift)
   local perc = math.floor(progress * 100)
   term.clear()
@@ -99,13 +103,10 @@ local function drawTerminal(total, remaining, progress, shift)
   print(line)
 end
 
--- Attiva segnale redstone per tutta la durata
-pcall(function() redstone.setOutput("back", true) end)
-
+-- loop principale (aggiorna la barra fino a scadenza)
 local start = now()
-local updateInterval = 0.08
+local updateInterval = 0.08  -- aggiornamento ogni ~80ms (regolabile)
 local colorShift = 0
-
 while true do
   local elapsed = now() - start
   if elapsed >= seconds then break end
@@ -120,14 +121,20 @@ while true do
   os.sleep(updateInterval)
 end
 
--- Disegna finale (barra piena)
+-- disegna finale (barra piena)
 if mon then
-  pcall(drawMonitor, mon, seconds, 0, 1, colorShift)
+  pcall(drawMonitor, mon, seconds, 0, 1, colorShift) -- progress = 1
+  os.sleep(0.05)
 else
   drawTerminal(seconds, 0, 1, colorShift)
 end
 
--- Spegni segnale redstone
-pcall(function() redstone.setOutput("back", false) end)
+-- impulso redstone sul retro
+-- durata impulso ~0.18s (modificabile)
+pcall(function()
+  redstone.setOutput("back", true)
+  os.sleep(0.18)
+  redstone.setOutput("back", false)
+end)
 
-print("Timer completato!")
+print("Fatto!")
